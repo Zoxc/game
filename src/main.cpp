@@ -13,40 +13,69 @@ const size_t pixels_per_meter = 64;
 
 const size_t ground_height = height / 5;
 
+class Sprite
+{
+	public:
+		cairo_surface_t *surface;
+		Vector offset;
+	
+		Sprite(std::string filename);
+		~Sprite();
+
+		void render(cairo_t *cr, Vector position);
+};
+
+Sprite::Sprite(std::string filename)
+{
+	surface = cairo_image_surface_create_from_png(filename.c_str());
+
+	offset << (float)(0 - cairo_image_surface_get_width(surface) / 2), (float)cairo_image_surface_get_height(surface);
+}
+
+Sprite::~Sprite()
+{
+	cairo_surface_destroy(surface);
+}
+
+void Sprite::render(cairo_t *cr, Vector position)
+{
+	position += offset;
+
+	cairo_set_source_surface(cr, surface, position.x(), height - position.y());
+	cairo_paint(cr);
+}
+
 class Entity
 {
 	public:
-		cairo_surface_t *sprite;
-		Vector sprite_offset;
+		int direction;
+		Sprite *sprite;
+		Sprite *sprite_running;
 		Vector position;
 		Vector velocity;
 		
-		Entity(cairo_surface_t *sprite);
-		~Entity();
+		Entity(Sprite *sprite, Sprite *sprite_running);
 
 		void render(cairo_t *cr);
 		void step(float time, float input, float jump);
 };
 
-Entity::Entity(cairo_surface_t *sprite) : sprite(sprite)
+Entity::Entity(Sprite *sprite, Sprite *sprite_running) : direction(1), sprite(sprite), sprite_running(sprite_running)
 {
-	sprite_offset << (float)(0 - cairo_image_surface_get_width(sprite) / 2), (float)cairo_image_surface_get_height(sprite);
 	position << 0, 0;
 	velocity << 0, 0;
-	cairo_surface_reference(sprite);
-}
-
-Entity::~Entity()
-{
-	cairo_surface_destroy(sprite);
 }
 
 void Entity::render(cairo_t *cr)
 {
-	Vector position = this->position + sprite_offset;
+	cairo_save(cr);
+	cairo_scale(cr, direction, 1.0);
 
-	cairo_set_source_surface(cr, sprite, position.x(), height - position.y());
-	cairo_paint(cr);
+	Sprite *to_draw = abs(velocity[0]) > 10.0f ? sprite_running : sprite;
+	
+	to_draw->render(cr, Vector(position[0] * direction, position[1])); 
+
+	cairo_restore(cr);
 }
 
 void Entity::step(float time, float input, float jump)
@@ -68,6 +97,9 @@ void Entity::step(float time, float input, float jump)
 	velocity[1] += jump + (gravity - 0.2f * velocity[1]) * time;
 
 	position += velocity * time;
+	
+	if(velocity[0] != 0.0f)
+		direction = velocity[0] > 0.0f ? 1 : -1;
 
 	// Snap to ground plane
 	if(position[1] < (float)ground_height)
@@ -130,7 +162,8 @@ bool handle_event(SDL_Event &event)
 
 cairo_pattern_t *sky_pattern;
 cairo_pattern_t *ground_pattern;
-cairo_surface_t *guy;
+Sprite *guy;
+Sprite *guy_running;
 
 Entity *character;
 
@@ -147,10 +180,11 @@ void allocate()
 
 	cairo_pattern_add_color_stop_rgb(ground_pattern, 0.0, 170 / 255.0, 140 / 255.0, 72 / 255.0);
 	cairo_pattern_add_color_stop_rgb(ground_pattern, 1.0, 102 / 255.0, 91 / 255.0, 68 / 255.0);
+	
+	guy = new Sprite("guy.png");
+	guy_running = new Sprite("guy-running.png");
 
-	guy = cairo_image_surface_create_from_png("guy.png");
-
-	character = new Entity(guy);
+	character = new Entity(guy, guy_running);
 	character->position(0) += 50;
 	character->position(1) += ground_height;
 }
@@ -159,14 +193,16 @@ void deallocate()
 {
 	delete character;
 
+	delete guy;
+	delete guy_running;
+
 	cairo_pattern_destroy(sky_pattern);
 	cairo_pattern_destroy(ground_pattern);
-	cairo_surface_destroy(guy);
 }
 
 void step(float time)
 {
-	character->step(time, character_input * 1500.0f, character_jump * 350);
+	character->step(time, character_input * 1500.0f, character_jump * 350.0f);
 
 	character_jump = 0;	
 }
